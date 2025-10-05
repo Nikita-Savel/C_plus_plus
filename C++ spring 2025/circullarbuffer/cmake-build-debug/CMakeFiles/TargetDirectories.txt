@@ -1,0 +1,3 @@
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/circullarbuffer/cmake-build-debug/CMakeFiles/C___spring_2025.dir
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/circullarbuffer/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/circullarbuffer/cmake-build-debug/CMakeFiles/rebuild_cache.dir

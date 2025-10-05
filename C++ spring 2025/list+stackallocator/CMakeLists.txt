@@ -7,4 +7,5 @@ include_directories(.)
 
 add_executable(list_stackallocator
     stackallocator.cpp
-    stackallocator.h)
+    stackallocator.h
+)

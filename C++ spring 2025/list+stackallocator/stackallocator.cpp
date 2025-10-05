@@ -543,27 +543,27 @@ void TestPerformance() {
 
 int main() {
 
-    const rlim_t kStackSize = 210 * 1024 * 1024;   // min stack size = 16 MB
-    struct rlimit rl;
-    int result;
+    // const rlim_t kStackSize = 210 * 1024 * 1024;   // min stack size = 16 MB
+    // struct rlimit rl;
+    // int result;
 
-    result = getrlimit(RLIMIT_STACK, &rl);
-    if (result != 0) {
-        std::cerr << "Failed to get current stack size\n";
-        abort();
-    }
+    // result = getrlimit(RLIMIT_STACK, &rl);
+    // if (result != 0) {
+    //     std::cerr << "Failed to get current stack size\n";
+    //     abort();
+    // }
     
-    std::cerr << rl.rlim_cur << '\n';
-
-    if (rl.rlim_cur < kStackSize) {
-        rl.rlim_cur = kStackSize;
-        result = setrlimit(RLIMIT_STACK, &rl);
-        if (result != 0) {
-            std::cerr << "Failed to set bigger stack size\n";
-            abort();
-        }
-        std::cerr << "Stack size is successfully set to " << kStackSize << '\n';
-    }
+    // std::cerr << rl.rlim_cur << '\n';
+    //
+    // if (rl.rlim_cur < kStackSize) {
+    //     rl.rlim_cur = kStackSize;
+    //     result = setrlimit(RLIMIT_STACK, &rl);
+    //     if (result != 0) {
+    //         std::cerr << "Failed to set bigger stack size\n";
+    //         abort();
+    //     }
+    //     std::cerr << "Stack size is successfully set to " << kStackSize << '\n';
+    // }
 
     static_assert(!std::is_assignable_v<decltype(*List<int>().cbegin()), int>);
     static_assert(!std::is_assignable_v<List<int>::iterator, List<int>::const_iterator>);

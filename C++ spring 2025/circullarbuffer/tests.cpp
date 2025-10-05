@@ -1,14 +1,14 @@
 #include "circular_buffer.h"
-#include <ranges>
 
-#include <cassert>
-#include <vector>
-#include <ranges>
 #include <algorithm>
+#include <cassert>
+#include <memory>
+#include <ranges>
+#include <vector>
 
 enum class WhenCapacityKnown {
   KNOWN_AT_COMPILETIME,
-  KNOWN_AT_RUNTIME
+  KNOWN_AT_RUNTIME,
 };
 
 // Acts like a factory for the CircularBuffer
@@ -250,7 +250,7 @@ void test_copy_and_assignment() {
 
 void test_constructor_exception() {
   try {
-    CircularBuffer<int, 32>(42);
+    std::ignore = CircularBuffer<int, 32>(42);
     assert(false);
   } catch(std::invalid_argument&) {
   }
@@ -285,8 +285,8 @@ void test_iterators() {
   Iter begin_iter = buffer.begin();
   Iter end_iter = buffer.end();
 
-  assert(end_iter - begin_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
-  assert(begin_iter - end_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
+  assert(end_iter - begin_iter == static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
+  assert(begin_iter - end_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
   assert(begin_iter + buffer.capacity() == end_iter);
   assert(buffer.capacity() + begin_iter == end_iter);
   assert(end_iter - buffer.capacity() == begin_iter);
@@ -296,11 +296,11 @@ void test_iterators() {
     Iter cur_iter = begin_iter + i;
 
     assert(*cur_iter == i);
-    assert(cur_iter - begin_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(i));
-    assert(begin_iter - cur_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(i));
+    assert(cur_iter - begin_iter == static_cast<std::iterator_traits<Iter>::difference_type>(i));
+    assert(begin_iter - cur_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(i));
     assert(cur_iter - i == begin_iter);
-    assert(end_iter - cur_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
-    assert(cur_iter - end_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
+    assert(end_iter - cur_iter == static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
+    assert(cur_iter - end_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
     assert(cur_iter + (buffer.capacity() - i) == end_iter);
     assert((buffer.capacity() - i) + cur_iter == end_iter);
     assert(begin_iter <= cur_iter);
@@ -317,8 +317,8 @@ void test_iterators() {
   ReverseIter rbegin_iter = buffer.rbegin();
   ReverseIter rend_iter = buffer.rend();
 
-  assert(rend_iter - rbegin_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
-  assert(rbegin_iter - rend_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
+  assert(rend_iter - rbegin_iter == static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
+  assert(rbegin_iter - rend_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity()));
   assert(rbegin_iter + buffer.capacity() == rend_iter);
   assert(buffer.capacity() + rbegin_iter == rend_iter);
   assert(rend_iter - buffer.capacity() == rbegin_iter);
@@ -328,11 +328,11 @@ void test_iterators() {
     auto cur_iter = rbegin_iter + i;
 
     assert(*cur_iter == buffer.capacity() - i - 1);
-    assert(cur_iter - rbegin_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(i));
-    assert(rbegin_iter - cur_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(i));
+    assert(cur_iter - rbegin_iter == static_cast<std::iterator_traits<Iter>::difference_type>(i));
+    assert(rbegin_iter - cur_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(i));
     assert(cur_iter - i == rbegin_iter);
-    assert(rend_iter - cur_iter == static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
-    assert(cur_iter - rend_iter == -static_cast<typename std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
+    assert(rend_iter - cur_iter == static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
+    assert(cur_iter - rend_iter == -static_cast<std::iterator_traits<Iter>::difference_type>(buffer.capacity() - i));
     assert(cur_iter + (buffer.capacity() - i) == rend_iter);
     assert((buffer.capacity() - i) + cur_iter == rend_iter);
     assert(rbegin_iter <= cur_iter);
@@ -614,6 +614,161 @@ void test_iterator_tags() {
 
 } // namespace TestsByNemoumbra
 
+namespace TestsByKostylevgo {
+
+void test_optimal_memory_usage() {
+  static_assert(sizeof(CircularBuffer<int64_t, 10000>) <= 81000);
+}
+
+template<WhenCapacityKnown When>
+void test_explicit_constructor() {
+  // CircularBuffer(size_t) constructor should be explicit
+  static_assert((!std::is_convertible_v<std::size_t, decltype(create_buffer<int, When, 5>())>));
+}
+
+struct alignas (std::max_align_t) Aligned {};
+
+struct AlignChecker {
+  CircularBuffer<Aligned, 1> buf1;
+  CircularBuffer<Aligned, 1> buf2;
+  int64_t change_alignment;
+  CircularBuffer<Aligned, 1> buf3;
+  CircularBuffer<Aligned, 1> buf4;
+};
+
+template <typename T, std::size_t Capacity>
+void check_aligned(CircularBuffer<T, Capacity>& buf) {
+  buf.push_back(T());
+  void* ptr = buf.begin().operator->();
+  void* ptr2 = ptr;
+  std::size_t space = sizeof(T);
+  void* align_result = std::align(alignof(T), space, ptr2, space);
+  // Raw memory in CircularBuffer should be aligned for T
+  assert(align_result != nullptr);
+  assert(space == sizeof(T));
+  assert(ptr == ptr2);
+}
+
+void test_static_buffer_alignment() {
+  AlignChecker checker;
+  check_aligned(checker.buf1);
+  check_aligned(checker.buf2);
+  check_aligned(checker.buf3);
+  check_aligned(checker.buf4);
+}
+
+struct Counter {
+  Counter() = default;
+
+  Counter(const Counter&) {
+    ++counter_;
+  }
+
+  Counter& operator=(const Counter&) {
+    ++counter_;
+    return *this;
+  }
+
+  Counter(Counter&&) = default;
+  Counter& operator=(Counter&&) = default;
+
+  static void reset() {
+    counter_ = 0;
+  }
+
+  static std::size_t count() {
+    return counter_;
+  }
+
+private:
+  static inline std::size_t counter_ = 0;
+};
+
+template<WhenCapacityKnown When>
+void test_optimal_copy_calls() {
+  auto a = create_buffer<Counter, When, 5>();
+  auto b = create_buffer<Counter, When, 5>();
+  while (!b.full()) {
+    b.push_back(Counter());
+  }
+  Counter::reset();
+  a = b;
+  assert(Counter::count() == 5);
+}
+
+/* Toy class, but it is actually possible that one of the fields of some object must be equal to
+this / pointer to some inner field of that object itself. List is a good example of that. */
+
+class SelfReferencing {
+public:
+  SelfReferencing(): reference_(this) {
+  }
+
+  SelfReferencing([[maybe_unused]] const SelfReferencing& other): SelfReferencing() {
+  }
+
+  SelfReferencing& operator=([[maybe_unused]] const SelfReferencing& other) {
+    return *this;
+  }
+
+  bool is_linked() {
+    return reference_ == this;
+  }
+
+private:
+  SelfReferencing* reference_;
+};
+
+template<WhenCapacityKnown When>
+void test_copy_assignment() {
+  auto a = create_buffer<SelfReferencing, When, 1>();
+  a.push_back(SelfReferencing());
+  auto b = create_buffer<SelfReferencing, When, 1>();
+  // Do not copy data bytewise, use copy assignment operator
+  b = a;
+  assert(b[0].is_linked());
+}
+
+} // namespace TestsByKostylevgo
+
+namespace TestsByDolesko {
+
+template<WhenCapacityKnown When>
+void test_assignability_iterators() {
+  auto buffer = create_buffer<std::size_t, When, 5>();
+
+  static_assert(std::is_assignable_v<decltype(buffer.cbegin()), decltype(buffer.begin())>);
+  static_assert(std::is_assignable_v<decltype(buffer.begin()), decltype(buffer.begin())>);
+  static_assert(std::is_assignable_v<decltype(buffer.cbegin()), decltype(buffer.cbegin())>);
+  static_assert(!std::is_assignable_v<decltype(buffer.begin()), decltype(buffer.cbegin())>);
+}
+
+template<WhenCapacityKnown When>
+void test_convertibility_iterators() {
+  auto buffer = create_buffer<std::size_t, When, 5>();
+
+  static_assert(!std::is_convertible_v<decltype(buffer.cbegin()), decltype(buffer.begin())>);
+  static_assert(std::is_convertible_v<decltype(buffer.begin()), decltype(buffer.begin())>);
+  static_assert(std::is_convertible_v<decltype(buffer.cbegin()), decltype(buffer.cbegin())>);
+  static_assert(std::is_convertible_v<decltype(buffer.begin()), decltype(buffer.cbegin())>);
+}
+
+template<WhenCapacityKnown When>
+void test_conversion_iterators() {
+  auto buffer = create_buffer<std::size_t, When, 5>();
+
+  auto cx = buffer.cbegin();
+  auto x = buffer.begin();
+
+  assert(cx == x);
+
+  decltype(cx) cy = x;
+
+  assert(cx == cy);
+}
+
+} // namespace TestsByDolesko
+
 int main() {
   TestsByPetialetia::test_empty<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
   TestsByPetialetia::test_empty<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
@@ -648,4 +803,22 @@ int main() {
 
   TestsByPetialetia::test_exceptions<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
   TestsByPetialetia::test_exceptions<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+
+  TestsByKostylevgo::test_optimal_memory_usage();
+  TestsByKostylevgo::test_explicit_constructor<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByKostylevgo::test_explicit_constructor<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+
+  TestsByKostylevgo::test_static_buffer_alignment();
+  TestsByKostylevgo::test_optimal_copy_calls<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByKostylevgo::test_optimal_copy_calls<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+  TestsByKostylevgo::test_copy_assignment<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByKostylevgo::test_copy_assignment<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+
+  TestsByDolesko::test_assignability_iterators<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByDolesko::test_assignability_iterators<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+  TestsByDolesko::test_convertibility_iterators<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByDolesko::test_convertibility_iterators<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
+
+  TestsByDolesko::test_conversion_iterators<WhenCapacityKnown::KNOWN_AT_COMPILETIME>();
+  TestsByDolesko::test_conversion_iterators<WhenCapacityKnown::KNOWN_AT_RUNTIME>();
 }

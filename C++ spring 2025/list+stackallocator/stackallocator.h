@@ -13,20 +13,27 @@
 
 template <size_t N>
 class StackStorage {
-    alignas(alignof(std::max_align_t)) char data[N]{};
+    alignas(std::max_align_t) char data[N]{};
     char* current_pos = data;
 
 public:
-    char* get_data() {
-      return data;
+    void* allocate(size_t size, size_t alignment) {
+        char* ptr = current_pos;
+        const size_t space = N - static_cast<size_t>(ptr - data);
+        const auto addr = reinterpret_cast<std::uintptr_t>(ptr);
+        const size_t adjustment = (alignment - (addr % alignment)) % alignment;
+        if (adjustment > space || size > space - adjustment) {
+            throw std::bad_alloc();
+        }
+        char* aligned_ptr = ptr + adjustment;
+        current_pos = aligned_ptr + size;
+        return aligned_ptr;
     }
 
-    [[nodiscard]] char* get_current_pos() const {
-        return current_pos;
-    }
-
-    void set_current_pos(char* new_pos) {
-        current_pos = new_pos;
+    void deallocate(void* ptr, size_t size) noexcept {
+        if (static_cast<char*>(ptr) + size == current_pos) {
+            current_pos = static_cast<char*>(ptr);
+        }
     }
 
     StackStorage(const StackStorage&) = delete;
@@ -65,18 +72,14 @@ public:
     StackAllocator& operator=(const StackAllocator& other) = default;
 
     value_type* allocate(const std::size_t n) {
-        const std::size_t total_size = sizeof(T) * n;
-        std::size_t space = storage->remaining_space();
-        void* ptr = storage->get_current_pos();
-        void* aligned_ptr = std::align(alignof(T), total_size, ptr, space);
-        if (!aligned_ptr) {
-            throw std::bad_alloc();
-        }
-        storage->set_current_pos(static_cast<char*>(aligned_ptr) + total_size);
-        return static_cast<value_type*>(aligned_ptr);
+        return static_cast<value_type*>(
+            storage->allocate(n * sizeof(T), alignof(T))
+        );
     }
 
-    void deallocate(T*, std::size_t) noexcept {}
+    void deallocate(T* ptr, std::size_t n) noexcept {
+        storage->deallocate(ptr, n * sizeof(T));
+    }
 
     StackStorage<N>* get_storage() const {
         return storage;
@@ -111,11 +114,13 @@ public:
 =================================================
 */
 
+namespace detail {
+
 struct BaseNode {
     BaseNode* prev;
     BaseNode* next;
 
-    BaseNode() : prev(nullptr), next(nullptr) {}
+    BaseNode() = default;
 
     BaseNode(BaseNode* prev, BaseNode* next) : prev(prev), next(next) {}
 };
@@ -124,12 +129,12 @@ template <typename T>
 struct Node : BaseNode {
     T value;
 
-    Node() : value() {}
+    Node() = default;
 
     explicit Node(const T& val) : value(val) {}
 };
 
-template<typename T, bool is_const = false, bool is_reverse = false>
+template<typename T, bool is_const = false>
 class baseIterator {
     BaseNode* current;
 public:
@@ -139,7 +144,7 @@ public:
   using node_type = std::conditional_t<is_const, const BaseNode*, BaseNode*>;
   using node_t = std::conditional_t<is_const, const Node<T>*, Node<T>*>;
 
-  baseIterator() : current(nullptr) {}
+  baseIterator() = default;
 
   explicit baseIterator(BaseNode* node) : current(node) {}
 
@@ -147,11 +152,8 @@ public:
       return current;
   }
 
-  // baseIterator(const baseIterator<T, false, is_reverse>& other)
-  //     : current(other.node()) {}
-
   template<bool other_const, typename = std::enable_if_t<is_const >= other_const>>
-  baseIterator(const baseIterator<T, other_const, is_reverse>& other)
+  baseIterator(const baseIterator<T, other_const>& other)
       : current(other.node()) {}
 
   value_type& operator*() const {
@@ -160,15 +162,6 @@ public:
 
   value_type* operator->() const {
     return &(static_cast<node_t>(current))->value;
-  }
-
-  baseIterator<T, is_const> base() const noexcept {
-    if constexpr (is_reverse) {
-        return baseIterator<T, is_const>(current->next);
-    }
-    else {
-        return baseIterator<T, is_const>(current);
-    }
   }
 
 /*
@@ -188,42 +181,30 @@ public:
   }
 
   baseIterator& operator++() noexcept {
-      if constexpr (is_reverse) {
-          current = current->prev;
-      } else {
-          current = current->next;
-      }
+      current = current->next;
       return *this;
   }
 
   baseIterator operator++(int) noexcept {
-    baseIterator temp = *this;
-    ++(*this);
-    return temp;
+      baseIterator temp = *this;
+      ++(*this);
+      return temp;
   }
 
   baseIterator& operator--() noexcept {
-      if constexpr (is_reverse) {
-          current = current->next;
-      } else {
-          current = current->prev;
-      }
+      current = current->prev;
       return *this;
   }
 
   baseIterator operator--(int) noexcept {
-    baseIterator temp = *this;
-    --(*this);
-    return temp;
+      baseIterator temp = *this;
+      --(*this);
+      return temp;
   }
 
   baseIterator& operator+=(std::size_t n) {
     for (size_t i = 0; i < n; ++i) {
-        if (is_reverse) {
-            current = current->prev;
-        } else {
-            current = current->next;
-        }
+      current = current->next;
     }
     return *this;
   }
@@ -236,11 +217,7 @@ public:
 
   baseIterator& operator-=(std::size_t n) {
       for (size_t i = 0; i < n; ++i) {
-          if (is_reverse) {
-              current = current->next;
-          } else {
-              current = current->prev;
-          }
+        current = current->prev;
       }
       return *this;
   }
@@ -251,6 +228,7 @@ public:
     return temp;
   }
 };
+}
 
 /*
 =================================================
@@ -263,18 +241,18 @@ public:
 template<typename T, typename Allocator=std::allocator<T>>
 class List {
 
-  BaseNode endNode;
+  detail::BaseNode endNode;
   size_t list_size = 0;
-  using NodeAlloc = typename std::allocator_traits<Allocator>::template rebind_alloc<Node<T>>;
-  NodeAlloc alloc;
+  using NodeAlloc = typename std::allocator_traits<Allocator>::template rebind_alloc<detail::Node<T>>;
+  [[no_unique_address]] NodeAlloc alloc;
 
 public:
-    using iterator = baseIterator<T>;
-    using const_iterator = baseIterator<T, true>;
-    using reverse_iterator = baseIterator<T, false, true>;
-    using const_reverse_iterator = baseIterator<T, true, true>;
+    using iterator = detail::baseIterator<T>;
+    using const_iterator = detail::baseIterator<T, true>;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    using NodeAllocatorType = typename std::allocator_traits<Allocator>::template rebind_alloc<Node<T>>;
+    using NodeAllocatorType = typename std::allocator_traits<Allocator>::template rebind_alloc<detail::Node<T>>;
     using NodeAllocTraits = std::allocator_traits<NodeAllocatorType>;
 
 /*
@@ -289,14 +267,14 @@ public:
         size_t created = 0;
         try {
             for (; created < count; ++created) {
-                Node<T>* newNode = NodeAllocTraits::allocate(alloc, 1);
+                detail::Node<T>* newNode = NodeAllocTraits::allocate(alloc, 1);
                 try {
                     NodeAllocTraits::construct(alloc, newNode);
                 } catch (...) {
                     NodeAllocTraits::deallocate(alloc, newNode, 1);
                     throw;
                 }
-                BaseNode* last = endNode.prev;
+                detail::BaseNode* last = endNode.prev;
                 newNode->prev = last;
                 newNode->next = &endNode;
                 last->next = newNode;
@@ -315,31 +293,17 @@ public:
         : endNode{&endNode, &endNode},
         alloc(NodeAlloc()) {}
 
-    List(const size_t count)
-        : endNode{&endNode, &endNode},
-        alloc(NodeAlloc()) {
-            create(count);
-    }
-
-    List(const size_t count, const T& value)
-        : endNode{&endNode, &endNode},
-        alloc(NodeAlloc()) {
-        for (size_t i = 0; i < count; ++i) {
-            push_back(value);
-        }
-    }
-    
     explicit List(const Allocator& alloc) noexcept
         : endNode{&endNode, &endNode},
         alloc(alloc) {}
 
-    List(const size_t count, const Allocator& allocator)
+    List(const size_t count, const Allocator& allocator = Allocator())
         : endNode{&endNode, &endNode},
         alloc(allocator) {
         create(count);
     }
 
-    List(const size_t count, const T& value, const Allocator& allocator)
+    List(const size_t count, const T& value, const Allocator& allocator = Allocator())
         : endNode{&endNode, &endNode},
         alloc(allocator) {
         for (size_t i = 0; i < count; ++i) {
@@ -347,43 +311,28 @@ public:
         }
     }
 
-    List(const List& other)
-        : endNode{&endNode, &endNode},
-        alloc(NodeAllocTraits::select_on_container_copy_construction(other.alloc)) {
-            try {
-                for (auto it = other.begin(); it != other.end(); ++it) {
-                    Node<T>* newNode = NodeAllocTraits::allocate(alloc, 1);
-                    try {
-                        NodeAllocTraits::construct(alloc, newNode, *it);
-                    } catch (...) {
-                        NodeAllocTraits::deallocate(alloc, newNode, 1);
-                        throw;
-                    }
-                    newNode->prev = endNode.prev;
-                    newNode->next = &endNode;
-                    endNode.prev->next = newNode;
-                    endNode.prev = newNode;
-                    ++list_size;
-                }
-            } catch (...) {
-                clear();
-                throw;
-            }
+    void swap(List& other) noexcept {
+        std::swap(endNode, other.endNode);
+        std::swap(list_size, other.list_size);
+
+        if (endNode.next != &endNode) {
+            endNode.next->prev = &endNode;
+            endNode.prev->next = &endNode;
+        }
+        if (other.endNode.next != &other.endNode) {
+            other.endNode.next->prev = &other.endNode;
+            other.endNode.prev->next = &other.endNode;
+        }
+
+        if constexpr (NodeAllocTraits::propagate_on_container_swap::value) {
+            std::swap(alloc, other.alloc);
+        }
     }
 
     List& operator=(const List& other) {
         if (this != &other) {
             List tmp(other);
-            std::swap(endNode, tmp.endNode);
-            std::swap(list_size, tmp.list_size);
-            if (endNode.next != &endNode) {
-                endNode.next->prev = &endNode;
-                endNode.prev->next = &endNode;
-            }
-            if (tmp.endNode.next != &tmp.endNode) {
-                tmp.endNode.next->prev = &tmp.endNode;
-                tmp.endNode.prev->next = &tmp.endNode;
-            }
+            swap(tmp);
             if constexpr (NodeAllocTraits::propagate_on_container_copy_assignment::value) {
                 alloc = other.alloc;
             }
@@ -421,31 +370,31 @@ public:
     }
 
     iterator insert(const_iterator pos, const T& value) {
-        Node<T>* newNode = NodeAllocTraits::allocate(alloc, 1);
+        detail::Node<T>* newNode = NodeAllocTraits::allocate(alloc, 1);
         try {
             NodeAllocTraits::construct(alloc, newNode, value);
         } catch (...) {
             NodeAllocTraits::deallocate(alloc, newNode, 1);
             throw;
         }
-        BaseNode* currentNode = pos.node();
-        BaseNode* prevNode = currentNode->prev;
-        BaseNode* nextNode = currentNode;
+        detail::BaseNode* currentNode = pos.node();
+        detail::BaseNode* prevNode = currentNode->prev;
+        detail::BaseNode* nextNode = currentNode;
         newNode->prev = prevNode;
         newNode->next = nextNode;
         prevNode->next = newNode;
         currentNode->prev = newNode;
         ++list_size;
-        return iterator(static_cast<BaseNode*>(newNode));
+        return iterator(static_cast<detail::BaseNode*>(newNode));
     }
 
     iterator erase(const_iterator pos) {
         if (empty()) {
             throw std::out_of_range("List is empty");
         }
-        BaseNode* nodeToDeleteBase = pos.node();
-        Node<T>* nodeToDelete = static_cast<Node<T>*>(nodeToDeleteBase);
-        BaseNode* nextNode = nodeToDelete->next;
+        detail::BaseNode* nodeToDeleteBase = pos.node();
+        detail::Node<T>* nodeToDelete = static_cast<detail::Node<T>*>(nodeToDeleteBase);
+        detail::BaseNode* nextNode = nodeToDelete->next;
 
         nodeToDelete->prev->next = nodeToDelete->next;
         nodeToDelete->next->prev = nodeToDelete->prev;
@@ -489,6 +438,19 @@ public:
         erase(begin());
     }
 
+    List(const List& other)
+        : endNode{&endNode, &endNode},
+        alloc(NodeAllocTraits::select_on_container_copy_construction(other.alloc)) {
+        try {
+            for (const auto& item : other) {
+                push_back(item);
+            }
+        } catch (...) {
+            clear();
+            throw;
+        }
+    }
+
 /*
 -------------------------------------------------
 
@@ -502,7 +464,7 @@ public:
     }
 
     const_iterator begin() const noexcept {
-        return const_iterator(const_cast<BaseNode*>(endNode.next));
+        return const_iterator(const_cast<detail::BaseNode*>(endNode.next));
     }
 
     iterator end() noexcept {
@@ -510,38 +472,38 @@ public:
     }
 
     const_iterator end() const noexcept {
-        return const_iterator(const_cast<BaseNode*>(&endNode));
+        return const_iterator(const_cast<detail::BaseNode*>(&endNode));
     }
 
     reverse_iterator rbegin() noexcept {
-        return reverse_iterator(endNode.prev);
+        return reverse_iterator(end());
     }
 
     const_reverse_iterator rbegin() const noexcept {
-        return const_reverse_iterator(const_cast<BaseNode*>(endNode.prev));
+        return const_reverse_iterator(end());
     }
 
     reverse_iterator rend() noexcept {
-        return reverse_iterator(&endNode);
+        return reverse_iterator(begin());
     }
 
     const_reverse_iterator rend() const noexcept {
-        return const_reverse_iterator(const_cast<BaseNode*>(&endNode));
+        return const_reverse_iterator(begin());
     }
 
     const_iterator cbegin() const noexcept {
-        return const_iterator(const_cast<BaseNode*>(endNode.next));
+        return const_iterator(const_cast<detail::BaseNode*>(endNode.next));
     }
 
     const_iterator cend() const noexcept {
-        return const_iterator(const_cast<BaseNode*>(&endNode));
+        return const_iterator(const_cast<detail::BaseNode*>(&endNode));
     }
 
     const_reverse_iterator crbegin() const noexcept {
-        return const_reverse_iterator(const_cast<BaseNode*>(endNode.prev));
+        return const_reverse_iterator(cend());
     }
 
     const_reverse_iterator crend() const noexcept {
-        return const_reverse_iterator(const_cast<BaseNode*>(&endNode));
+        return const_reverse_iterator(cbegin());
     }
 };

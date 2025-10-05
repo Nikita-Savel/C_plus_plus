@@ -7,4 +7,5 @@ include_directories(.)
 
 add_executable(C___spring_2025
     circular_buffer.h
-        tests.cpp)
+        tests.cpp
+        pupu.h)

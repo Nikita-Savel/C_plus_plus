@@ -1,0 +1,3 @@
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/smart_pointers/cmake-build-debug/CMakeFiles/untitled.dir
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/smart_pointers/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/smart_pointers/cmake-build-debug/CMakeFiles/rebuild_cache.dir

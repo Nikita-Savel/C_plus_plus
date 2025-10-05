@@ -1,0 +1,16 @@
+/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja -G Ninja -S "/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/circullarbuffer" -B "/Users/nikitasavelyev/Programming/CLionProjects/C++ spring 2025/circullarbuffer/cmake-build-debug"
+CMake Warning at /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.31/Modules/Platform/Darwin-Initialize.cmake:311 (message):
+  Ignoring CMAKE_OSX_SYSROOT value:
+
+   /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk
+
+  because the directory does not exist.
+Call Stack (most recent call first):
+  /Applications/CLion.app/Contents/bin/cmake/mac/aarch64/share/cmake-3.31/Modules/CMakeSystemSpecificInitialize.cmake:34 (include)
+  CMakeLists.txt:2 (project)
+
+
+-- Configuring done (0.0s)
+CMake Error: CMake can not determine linker language for target: C___spring_2025
+-- Generating done (0.0s)
+CMake Generate step failed.  Build files cannot be regenerated correctly.
